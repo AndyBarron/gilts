@@ -1,0 +1,11 @@
+# System-native binary files
+*.pyd
+*.dll
+*.so
+*.dylib
+
+# Compiled Python bytecode
+*.pyc
+
+# Mac OS junk files
+.DS_Store
