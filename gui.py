@@ -31,8 +31,8 @@ class TeachingFrame(wx.Frame):
         canvas.motion_length = 0
         canvas.motion_playback = 0
         vbox.Add(canvas, 1, wx.EXPAND | wx.ALL, border=0)
-        controls = wx.Panel(panel, wx.ID_ANY)
-        cbox = wx.BoxSizer(wx.VERTICAL)
+        controls = self.controls = wx.Panel(panel, wx.ID_ANY)
+        cbox = self.cbox = wx.BoxSizer(wx.VERTICAL)
         button_cap = wx.Button(controls, wx.ID_ANY, "Capture static gesture")
         button_record = wx.Button(controls, wx.ID_ANY, "Record motion gesture")
         button_save = wx.Button(controls, wx.ID_ANY, "Save gesture to file")
@@ -51,6 +51,13 @@ class TeachingFrame(wx.Frame):
         button_load.Bind(wx.EVT_BUTTON, lambda _: self.load_hand())
         self.button_record = button_record
 
+    def _add_sidebar_btn(txt, parent, sizer, fn):
+        btn = wx.Button(parent, wx.ID_ANY, txt)
+        btn_flags = wx.ALIGN_CENTER|wx.ALL|wx.EXPAND
+        sizer.Add(btn, flag=btn_flags, border=5)
+        btn.Bind(wx.EVT_BUTTON, lambda _: fn())
+        return btn
+
     def capture_static(self):
         self.canvas.capture_static = True
 
@@ -58,7 +65,7 @@ class TeachingFrame(wx.Frame):
         new_label = "???"
         recording = self.canvas.record_motion
         if not recording:
-            self.canvas.motion_frames = list()
+            self.canvas.motion_frames = dict()
             self.canvas.record_motion = True
             self.canvas.record_motion_start = time.time()
             self.button_record.SetLabelText("Stop recording")
@@ -175,13 +182,19 @@ class LeapCanvas(UpdateGLCanvas):
             glColor3f(0,0.5,1)
             self.draw_hand_snapshot(self.saved)
             glPopMatrix()
-        if not self.record_motion and self.motion_frames is not None:
+        if not self.record_motion and self.motion_frames is not None \
+                and len(self.motion_frames) > 0:
             self.motion_playback += delta
             while self.motion_playback >= self.motion_length:
                 self.motion_playback -= self.motion_length
-            percent = self.motion_playback / self.motion_length
-            idx = math.floor( len(self.motion_frames) * percent)
-            self.draw_hand_snapshot(self.motion_frames[int(idx)])
+            # percent = self.motion_playback / self.motion_length
+            # idx = math.floor( len(self.motion_frames) * percent)
+            # self.draw_hand_snapshot(self.motion_frames[int(idx)])
+            get_dif = lambda t: abs(self.motion_playback - t)
+            ts = min(self.motion_frames, key=get_dif)
+            snap = self.motion_frames[ts]
+            glColor3f(1,1,0)
+            self.draw_hand_snapshot(snap)
         for hand in frame.hands:
             if not self.saved or hand.is_left != self.saved.is_left:
                 glColor3f(1,1,1)
@@ -201,4 +214,6 @@ class LeapCanvas(UpdateGLCanvas):
             else:
                 self.saved = None
         if self.record_motion and len(frame.hands) > 0:
-            self.motion_frames.append(HandSnapshot(frame.hands[0]))
+            key = cur_time - self.record_motion_start
+            snap = HandSnapshot(frame.hands[0])
+            self.motion_frames[key] = snap
