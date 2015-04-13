@@ -13,6 +13,7 @@ from leap import Leap
 import helpers
 from classes import *
 
+SECONDS_TO_RECORD = 10
 FILE_WILDCARD = "Hand files (*.hand)|*.hand"
 
 class TeachingFrame(wx.Frame):
@@ -55,7 +56,11 @@ class TeachingFrame(wx.Frame):
         return btn
 
     def capture_static(self):
-        self.canvas.capture_static = True
+        snaps = self.canvas.snapshots
+        if len(snaps) > 0:
+            self.canvas.saved = StaticGesture(snaps[max(snaps)])
+        else:
+            self.canvas.saved = None
 
     def record_motion(self):
         new_label = "???"
@@ -94,12 +99,14 @@ class TeachingFrame(wx.Frame):
         hand_dict = None
         with open(path, 'r') as f:
             hand_dict = json.load(f)
-        self.canvas.saved = HandSnapshot(hand_dict)
+        self.canvas.saved = Gesture.from_dict(hand_dict)
 
 class LeapCanvas(UpdateGLCanvas):
     def __init__(self, parent, wxid, controller, *args, **kwargs):
         UpdateGLCanvas.__init__(self, parent, wxid, *args, **kwargs)
         self.lm = controller
+        self.last_frame = None
+        self.snapshots = dict()
         wait_timer = 0
         wait_interval = 0.1
         wait_max = 2
@@ -156,27 +163,70 @@ class LeapCanvas(UpdateGLCanvas):
             glEnd()
         glPopMatrix()
 
+    def update(self, delta):
+
+        #### debug
+        # if not hasattr(self, "q"):
+        #     self.q = 0
+        # self.q += delta
+        # if self.q >= 1:
+        #     self.q -= 1
+        #     k = self.snapshots.keys()
+        #     if len(k) > 0:
+        #         print(min(k), max(k))
+        #     else:
+        #         print("-")
+        ####
+
+
+        frame = self.last_frame = self.lm.frame()
+        if len(frame.hands) != 1:
+            self.snapshots.clear()
+            # TODO other stuff when breaking one-hand rule
+            return
+        # else
+        hand = frame.hands[0]
+        snap = HandSnapshot(hand)
+        if len(self.snapshots) == 0:
+            self.snapshots[0.0] = snap
+        else:
+            new_ts = max(self.snapshots) + delta
+            self.snapshots[new_ts] = snap
+            sec_limit = SECONDS_TO_RECORD if not isinstance(self.saved, MotionGesture) \
+                else self.saved.length
+            if new_ts > sec_limit:
+                diff = new_ts - sec_limit
+                self.snapshots = {t-diff: s for t, s in
+                    self.snapshots.iteritems() if t-diff >= 0}
+                first = min(self.snapshots)
+                if first > 0:
+                    self.snapshots = {t-first: s for t, s in
+                        self.snapshots.iteritems()}
+
+
     def on_gl_draw(self):
         # timing
         cur_time = time.time()
         delta = cur_time - self.last_time
         self.last_time = cur_time
+        self.update(delta)
         # draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glPushMatrix()
         scl = 1/500
         glScalef(scl,scl,scl)
         glTranslatef(0,-375,-500)
-        frame = self.lm.frame()
-        if self.saved is not None:
+        frame = self.last_frame
+        if isinstance(self.saved, StaticGesture):
+            snap = self.saved.snapshot
             glPushMatrix()
             for hand in frame.hands:
-                if hand.is_left == self.saved.is_left:
-                    diff = Vec3(hand.palm_position) - self.saved.palm_position
+                if hand.is_left == snap.is_left:
+                    diff = Vec3(hand.palm_position) - snap.palm_position
                     glTranslatef(*(diff))
                     break
             glColor3f(0,0.5,1)
-            self.draw_hand_snapshot(self.saved)
+            self.draw_hand_snapshot(snap)
             glPopMatrix()
         if not self.record_motion and self.motion_frames is not None \
                 and len(self.motion_frames) > 0:
@@ -192,23 +242,15 @@ class LeapCanvas(UpdateGLCanvas):
             glColor3f(1,1,0)
             self.draw_hand_snapshot(snap)
         for hand in frame.hands:
-            if not self.saved or hand.is_left != self.saved.is_left:
+            if not self.saved or hand.is_left != self.saved.snapshot.is_left:
                 glColor3f(1,1,1)
             else:
-                match = HandSnapshot(hand).match_joint_offsets(self.saved, 45)
+                # match = HandSnapshot(hand).match_joint_offsets(self.saved, 45)
+                match = self.saved.match({0: HandSnapshot(hand)})
                 color = (0,1,0) if match else (1,0,0)
                 glColor3f(*color)
             self.draw_hand(hand)
         glPopMatrix()
-        if self.capture_static:
-            self.capture_static = False
-            if len(frame.hands) > 0:
-                self.saved = frame.hands[0]
-                self.saved = HandSnapshot(self.saved)
-                print(json.dumps(self.saved, cls=JSONEncoderPlus))
-                # print(len(list(saved.iter_joints())))
-            else:
-                self.saved = None
         if self.record_motion and len(frame.hands) > 0:
             key = cur_time - self.record_motion_start
             snap = HandSnapshot(frame.hands[0])

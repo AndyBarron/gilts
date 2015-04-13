@@ -29,7 +29,7 @@ class Vec3(object):
     def length(self):
         return math.sqrt(self.x**2 + self.y**2 + self.z**2)
 
-    def _json_dict(self):
+    def _custom_json(self):
         return {
             "x": self.x,
             "y": self.y,

@@ -5,4 +5,4 @@ class JSONEncoderPlus(JSONEncoder):
         try:
             return o._custom_json()
         except AttributeError:
-            return super(JSONEncoderPlus, self).default(self, o)
+            return super(JSONEncoderPlus, self).default(o)
