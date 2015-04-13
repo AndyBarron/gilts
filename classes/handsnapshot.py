@@ -50,7 +50,7 @@ class HandSnapshot(object):
                     joints.append(Vec3(bone.prev_joint) - origin)
                 joints.append(Vec3(bone.next_joint) - origin)
 
-    def _json_dict(self):
+    def _custom_json(self):
         return {attr: getattr(self, attr) for attr in self.__slots__}
 
     def match_joint_offsets(self, other, threshold=45):

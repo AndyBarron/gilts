@@ -31,27 +31,23 @@ class TeachingFrame(wx.Frame):
         canvas.motion_length = 0
         canvas.motion_playback = 0
         vbox.Add(canvas, 1, wx.EXPAND | wx.ALL, border=0)
-        controls = self.controls = wx.Panel(panel, wx.ID_ANY)
-        cbox = self.cbox = wx.BoxSizer(wx.VERTICAL)
-        button_cap = wx.Button(controls, wx.ID_ANY, "Capture static gesture")
-        button_record = wx.Button(controls, wx.ID_ANY, "Record motion gesture")
-        button_save = wx.Button(controls, wx.ID_ANY, "Save gesture to file")
-        button_load = wx.Button(controls, wx.ID_ANY, "Load gesture from file")
-        btn_flags = wx.ALIGN_CENTER|wx.ALL|wx.EXPAND
-        cbox.Add(button_cap, flag=btn_flags, border=5)
-        cbox.Add(button_record, flag=btn_flags, border=5)
-        cbox.Add(button_save, flag=btn_flags, border=5)
-        cbox.Add(button_load, flag=btn_flags, border=5)
+        controls = wx.Panel(panel, wx.ID_ANY)
+        cbox = wx.BoxSizer(wx.VERTICAL)
+        self.btn_cap = self._add_sidebar_btn("Capture static gesture", controls,
+            cbox, self.capture_static)
+        self.btn_rec = self._add_sidebar_btn("Record motion gesture", controls,
+            cbox, self.record_motion)
+        self.btn_save = self._add_sidebar_btn("Save gesture to file", controls,
+            cbox, self.save_hand)
+        self.btn_load = self._add_sidebar_btn("Load gesture from file", controls,
+            cbox, self.load_hand)
         vbox.Add(controls, flag=wx.ALIGN_RIGHT|wx.RIGHT)
         panel.SetSizer(vbox)
         controls.SetSizer(cbox)
-        button_cap.Bind(wx.EVT_BUTTON, lambda _: self.capture_static())
-        button_record.Bind(wx.EVT_BUTTON, lambda _: self.record_motion())
-        button_save.Bind(wx.EVT_BUTTON, lambda _: self.save_hand())
-        button_load.Bind(wx.EVT_BUTTON, lambda _: self.load_hand())
-        self.button_record = button_record
+        self.btn_rec._msg_start_record = self.btn_cap.GetLabelText()
+        self.btn_rec._msg_stop_record = "Stop recording"
 
-    def _add_sidebar_btn(txt, parent, sizer, fn):
+    def _add_sidebar_btn(self, txt, parent, sizer, fn):
         btn = wx.Button(parent, wx.ID_ANY, txt)
         btn_flags = wx.ALIGN_CENTER|wx.ALL|wx.EXPAND
         sizer.Add(btn, flag=btn_flags, border=5)
@@ -68,16 +64,16 @@ class TeachingFrame(wx.Frame):
             self.canvas.motion_frames = dict()
             self.canvas.record_motion = True
             self.canvas.record_motion_start = time.time()
-            self.button_record.SetLabelText("Stop recording")
+            self.btn_rec.SetLabelText(self.btn_rec._msg_stop_record)
         else:
             sec = time.time() - self.canvas.record_motion_start
             print(
-                "Recording for {:.4} seconds".format(sec)
+                "Recording for {:.2} seconds".format(sec)
                 )
             self.canvas.motion_length = sec
             self.canvas.record_motion = False
             self.canvas.record_motion_start = None
-            self.button_record.SetLabelText("Record motion gesture")
+            self.btn_rec.SetLabelText(self.btn_rec._msg_start_record)
 
     def save_hand(self):
         if not self.canvas.saved:
