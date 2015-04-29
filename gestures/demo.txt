@@ -1,0 +1,5 @@
+point.hand: Point
+thumb.hand: Sideways thumbs up
+flex.hand: Flex
+soso.hand: So-so
+swipe.hand: Swipe

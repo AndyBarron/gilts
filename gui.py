@@ -13,8 +13,13 @@ from leap import Leap
 import helpers
 from classes import *
 
+QUIZ_TIME = 5
 SECONDS_TO_RECORD = 10
-FILE_WILDCARD = "Hand files (*.hand)|*.hand"
+HAND_FILE_WILDCARD = "Hand files (*.hand)|*.hand"
+QUIZ_FILE_WILDCARD = "Quiz files (*.txt)|*.txt"
+
+def show_modal(title, msg):
+    wx.MessageDialog(None, msg, title, style=wx.OK|wx.CENTRE).ShowModal()
 
 class TeachingFrame(wx.Frame):
     def __init__(self, parent, wxid, lm):
@@ -24,13 +29,6 @@ class TeachingFrame(wx.Frame):
         panel = wx.Panel(frame, wx.ID_ANY)
         vbox = wx.BoxSizer(wx.HORIZONTAL)
         canvas = self.canvas = LeapCanvas(panel, wx.ID_ANY, lm)
-        canvas.capture_static = False
-        canvas.record_motion = False
-        canvas.record_motion_start = None
-        canvas.saved = None
-        canvas.motion_frames = None
-        canvas.motion_length = 0
-        canvas.motion_playback = 0
         vbox.Add(canvas, 1, wx.EXPAND | wx.ALL, border=0)
         controls = wx.Panel(panel, wx.ID_ANY)
         cbox = wx.BoxSizer(wx.VERTICAL)
@@ -38,64 +36,103 @@ class TeachingFrame(wx.Frame):
             cbox, self.capture_static)
         self.btn_rec = self._add_sidebar_btn("Record motion gesture", controls,
             cbox, self.record_motion)
+        self.btn_clear = self._add_sidebar_btn("Clear gesture", controls,
+            cbox, self.clear_gesture)
         self.btn_save = self._add_sidebar_btn("Save gesture to file", controls,
             cbox, self.save_hand)
         self.btn_load = self._add_sidebar_btn("Load gesture from file", controls,
             cbox, self.load_hand)
+        self.btn_quiz = self._add_sidebar_btn("Load gesture quiz file", controls,
+            cbox, self.load_quiz)
+        self.txt_quiz = self._add_sidebar_txt("", controls, cbox)
         vbox.Add(controls, flag=wx.ALIGN_RIGHT|wx.RIGHT)
         panel.SetSizer(vbox)
         controls.SetSizer(cbox)
-        self.btn_rec._msg_start_record = self.btn_cap.GetLabelText()
+        self.btn_rec._msg_start_record = self.btn_rec.GetLabelText()
         self.btn_rec._msg_stop_record = "Stop recording"
+        self.recording = False
 
-    def _add_sidebar_btn(self, txt, parent, sizer, fn):
+    def _add_sidebar_btn(self, txt, parent, sizer, fn=None):
         btn = wx.Button(parent, wx.ID_ANY, txt)
         btn_flags = wx.ALIGN_CENTER|wx.ALL|wx.EXPAND
         sizer.Add(btn, flag=btn_flags, border=5)
-        btn.Bind(wx.EVT_BUTTON, lambda _: fn())
+        if fn is not None:
+            btn.Bind(wx.EVT_BUTTON, lambda _: fn())
         return btn
 
+    def _add_sidebar_txt(self, txt, parent, sizer):
+        txt = wx.StaticText(parent, wx.ID_ANY, txt)
+        txt.Wrap(90)
+        txt_flags = wx.ALIGN_CENTER|wx.ALL|wx.EXPAND
+        sizer.Add(txt, flag=txt_flags, border=5)
+        return txt
+
+    def clear_gesture(self):
+        self.canvas.saved = None
+
     def capture_static(self):
+        if self.recording: return
+        self.canvas.saved = None
         snaps = self.canvas.snapshots
         if len(snaps) > 0:
             self.canvas.saved = StaticGesture(snaps[max(snaps)])
-        else:
-            self.canvas.saved = None
 
+    # TODO disable save/load buttons
     def record_motion(self):
-        new_label = "???"
-        recording = self.canvas.record_motion
-        if not recording:
-            self.canvas.motion_frames = dict()
-            self.canvas.record_motion = True
-            self.canvas.record_motion_start = time.time()
+        if not self.recording:
+            self.canvas.saved = None
+            self.canvas.snapshots.clear()
             self.btn_rec.SetLabelText(self.btn_rec._msg_stop_record)
+            self.btn_cap.Disable()
+            self.btn_quiz.Disable()
+            self.btn_save.Disable()
+            self.btn_load.Disable()
         else:
-            sec = time.time() - self.canvas.record_motion_start
-            print(
-                "Recording for {:.2} seconds".format(sec)
-                )
-            self.canvas.motion_length = sec
-            self.canvas.record_motion = False
-            self.canvas.record_motion_start = None
+            if len(self.canvas.snapshots) > 0:
+                self.canvas.saved = MotionGesture(self.canvas.snapshots)
+                self.canvas.playback_timer = 0
+                self.canvas.snapshots.clear()
             self.btn_rec.SetLabelText(self.btn_rec._msg_start_record)
+            self.btn_cap.Enable()
+            self.btn_quiz.Enable()
+            self.btn_save.Enable()
+            self.btn_load.Enable()
+        self.recording = not self.recording
 
     def save_hand(self):
+        if self.recording: return
         if not self.canvas.saved:
             # TODO display message
             return
         fd = wx.FileDialog(self, style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT,
-            wildcard=FILE_WILDCARD)
+            wildcard=HAND_FILE_WILDCARD)
         fd.ShowModal()
         path = fd.GetPath()
         with open(path, 'w') as f:
             json.dump(self.canvas.saved, f, cls=JSONEncoderPlus)
 
-    def load_hand(self):
+    def load_quiz(self):
+        if self.recording: return
         fd = wx.FileDialog(self, style=wx.FD_OPEN,
-            wildcard=FILE_WILDCARD)
+            wildcard=QUIZ_FILE_WILDCARD)
         fd.ShowModal()
         path = fd.GetPath()
+        if not path: return
+        q = Quiz(path)
+        self.canvas.quiz = q
+        self.canvas.saved = None # q.gestures[0]
+        msg = "Get ready!"
+        title = "Beginning quiz: " + q.name
+        # show_modal(title, msg)
+
+
+    def load_hand(self):
+        if self.recording: return
+        fd = wx.FileDialog(self, style=wx.FD_OPEN,
+            wildcard=HAND_FILE_WILDCARD)
+        fd.ShowModal()
+        path = fd.GetPath()
+        if not path: return
         hand_dict = None
         with open(path, 'r') as f:
             hand_dict = json.load(f)
@@ -104,9 +141,16 @@ class TeachingFrame(wx.Frame):
 class LeapCanvas(UpdateGLCanvas):
     def __init__(self, parent, wxid, controller, *args, **kwargs):
         UpdateGLCanvas.__init__(self, parent, wxid, *args, **kwargs)
+        self.matching = False
+        self.quiz = None
+        self.quiz_timer = 0
         self.lm = controller
         self.last_frame = None
+        self.saved = None
         self.snapshots = dict()
+        self.playback_timer = 0
+        self.playback_offset = None
+        # init stuff
         wait_timer = 0
         wait_interval = 0.1
         wait_max = 2
@@ -178,33 +222,53 @@ class LeapCanvas(UpdateGLCanvas):
         #         print("-")
         ####
 
+        # playback!
+        if isinstance(self.saved, MotionGesture):
+            self.playback_timer += delta
+            self.playback_timer %= self.saved.length
 
+        # capturing/saving
         frame = self.last_frame = self.lm.frame()
-        if len(frame.hands) != 1:
-            self.snapshots.clear()
-            # TODO other stuff when breaking one-hand rule
-            return
-        # else
-        hand = frame.hands[0]
-        snap = HandSnapshot(hand)
-        if len(self.snapshots) == 0:
-            self.snapshots[0.0] = snap
+        if len(frame.hands) == 1:
+            hand = frame.hands[0]
+            snap = HandSnapshot(hand)
+            if len(self.snapshots) == 0:
+                self.snapshots[0.0] = snap
+            else:
+                new_ts = max(self.snapshots) + delta
+                self.snapshots[new_ts] = snap
+                sec_limit = SECONDS_TO_RECORD if not isinstance(self.saved, MotionGesture) \
+                    else self.saved.length
+                if new_ts > sec_limit:
+                    diff = new_ts - sec_limit
+                    self.snapshots = {t-diff: s for t, s in
+                        self.snapshots.iteritems() if t-diff >= 0}
+                    first = min(self.snapshots)
+                    if first > 0:
+                        self.snapshots = {t-first: s for t, s in
+                            self.snapshots.iteritems()}
         else:
-            new_ts = max(self.snapshots) + delta
-            self.snapshots[new_ts] = snap
-            sec_limit = SECONDS_TO_RECORD if not isinstance(self.saved, MotionGesture) \
-                else self.saved.length
-            if new_ts > sec_limit:
-                diff = new_ts - sec_limit
-                self.snapshots = {t-diff: s for t, s in
-                    self.snapshots.iteritems() if t-diff >= 0}
-                first = min(self.snapshots)
-                if first > 0:
-                    self.snapshots = {t-first: s for t, s in
-                        self.snapshots.iteritems()}
+            self.snapshots.clear()
+
+        # actually do matching
+        self.matching = self.saved and self.saved.match(self.snapshots)
+        if self.quiz and (self.matching or self.saved is None):
+            self.saved = None
+            if self.quiz.done:
+                show_modal("Good job!", "You finished the quiz: " + self.quiz.name)
+                self.quiz = None
+            else:
+                self.saved = self.quiz.next()
+                got_right = self.matching
+                title = "Good job!" if got_right else ("Starting quiz: " +
+                    self.quiz.name)
+                msg = "Next gesture: " + self.saved.name
+                show_modal(title, msg)
+                
 
 
     def on_gl_draw(self):
+
         # timing
         cur_time = time.time()
         delta = cur_time - self.last_time
@@ -220,38 +284,39 @@ class LeapCanvas(UpdateGLCanvas):
         if isinstance(self.saved, StaticGesture):
             snap = self.saved.snapshot
             glPushMatrix()
-            for hand in frame.hands:
+            if len(frame.hands) == 1:
+                hand = frame.hands[0]
                 if hand.is_left == snap.is_left:
                     diff = Vec3(hand.palm_position) - snap.palm_position
-                    glTranslatef(*(diff))
-                    break
+                    glTranslatef(*diff)
             glColor3f(0,0.5,1)
+            assert isinstance(snap, HandSnapshot)
             self.draw_hand_snapshot(snap)
             glPopMatrix()
-        if not self.record_motion and self.motion_frames is not None \
-                and len(self.motion_frames) > 0:
-            self.motion_playback += delta
-            while self.motion_playback >= self.motion_length:
-                self.motion_playback -= self.motion_length
-            # percent = self.motion_playback / self.motion_length
-            # idx = math.floor( len(self.motion_frames) * percent)
-            # self.draw_hand_snapshot(self.motion_frames[int(idx)])
-            get_dif = lambda t: abs(self.motion_playback - t)
-            ts = min(self.motion_frames, key=get_dif)
-            snap = self.motion_frames[ts]
+        elif isinstance(self.saved, MotionGesture):
+            snap = self.saved.nearest_snapshot(self.playback_timer)
+            assert isinstance(snap, HandSnapshot)
+            is_first = snap == min(self.saved.snapshots.iteritems())[1]
+            if is_first:
+                if len(frame.hands) == 1:
+                    hand = frame.hands[0]
+                    diff = Vec3(hand.palm_position) - snap.palm_position
+                    self.playback_offset = diff
+                else:
+                    self.playback_offset = None
+            glPushMatrix()
             glColor3f(1,1,0)
+            if self.playback_offset:
+                glTranslatef(*self.playback_offset)
             self.draw_hand_snapshot(snap)
+            glPopMatrix()
+
+        if self.saved:
+            color = (0,1,0) if self.matching else (1,0,0)
+            glColor3f(*color)
+        else:
+            glColor3f(1,1,1)
+
         for hand in frame.hands:
-            if not self.saved or hand.is_left != self.saved.snapshot.is_left:
-                glColor3f(1,1,1)
-            else:
-                # match = HandSnapshot(hand).match_joint_offsets(self.saved, 45)
-                match = self.saved.match({0: HandSnapshot(hand)})
-                color = (0,1,0) if match else (1,0,0)
-                glColor3f(*color)
             self.draw_hand(hand)
         glPopMatrix()
-        if self.record_motion and len(frame.hands) > 0:
-            key = cur_time - self.record_motion_start
-            snap = HandSnapshot(frame.hands[0])
-            self.motion_frames[key] = snap

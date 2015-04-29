@@ -53,9 +53,11 @@ class HandSnapshot(object):
     def _custom_json(self):
         return {attr: getattr(self, attr) for attr in self.__slots__}
 
-    def match_joint_offsets(self, other, threshold=45):
+    # TODO location dep/indep for motion gestures!
+    def match_joint_offsets(self, other, threshold=45, self_offset=Vec3(), other_offset=Vec3()):
+        if self.is_left != other.is_left: return False
         for fa, fb in itertools.izip(self.joint_offsets, other.joint_offsets):
             for ja, jb in itertools.izip(fa, fb):
-                if (ja - jb).length() > threshold:
+                if ((ja+self_offset) - (jb+other_offset)).length() > threshold:
                     return False
         return True
