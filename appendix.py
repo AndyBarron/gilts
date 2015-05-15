@@ -15,7 +15,7 @@ def process(dirpath, dirnames, filenames):
         if p in IGNORE:
             continue
         split = path.normpath(p).split(os.sep)
-        if '.git' in split or 'tests' in split:
+        if '.git' in split:
             continue
         print "\n***** " + p[1:] + "\n"
         with open(p, 'r') as f:
