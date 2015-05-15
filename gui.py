@@ -36,10 +36,10 @@ class TeachingFrame(wx.Frame):
             cbox, self.capture_static)
         self.btn_rec = self._add_sidebar_btn("Record motion gesture", controls,
             cbox, self.record_motion)
-        self.btn_clear = self._add_sidebar_btn("Clear gesture", controls,
-            cbox, self.clear_gesture)
         self.btn_save = self._add_sidebar_btn("Save gesture to file", controls,
             cbox, self.save_hand)
+        self.btn_clear = self._add_sidebar_btn("Clear gesture", controls,
+            cbox, self.clear_gesture)
         self.btn_load = self._add_sidebar_btn("Load gesture from file", controls,
             cbox, self.load_hand)
         self.btn_quiz = self._add_sidebar_btn("Load gesture quiz file", controls,
@@ -69,6 +69,7 @@ class TeachingFrame(wx.Frame):
 
     def clear_gesture(self):
         self.canvas.saved = None
+        self.canvas.quiz = None
 
     def capture_static(self):
         if self.recording: return
